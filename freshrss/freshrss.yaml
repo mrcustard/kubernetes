@@ -1,0 +1,205 @@
+---
+# MySQL PersistentVolume
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  local:
+    path: /data/mysql
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - pi3
+
+---
+# MySQL PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# FreshRSS PersistentVolume
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: freshrss-pv
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  local:
+    path: /data/freshrss
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - pi4
+
+---
+# FreshRSS PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: freshrss-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# MySQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: pi3
+      containers:
+      - name: mysql
+        image: mysql
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: V4XCoNaiCrdCpoDL
+        - name: MYSQL_DATABASE
+          value: freshrss
+        - name: MYSQL_USER
+          value: freshrss
+        - name: MYSQL_PASSWORD
+          value: DG3tjNPaXnpgiHPY
+        ports:
+        - containerPort: 3306
+        volumeMounts:
+        - name: mysql-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: mysql-storage
+        persistentVolumeClaim:
+          claimName: mysql-pvc
+
+---
+# MySQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  selector:
+    app: mysql
+  ports:
+  - port: 3306
+
+---
+# FreshRSS Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: freshrss
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: freshrss
+  template:
+    metadata:
+      labels:
+        app: freshrss
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: pi4
+      containers:
+      - name: freshrss
+        image: freshrss/freshrss:latest
+        ports:
+        - containerPort: 80
+        env:
+        - name: CRON_MIN
+          value: "*/15"
+        - name: TZ
+          value: "America/New_York"
+        - name: FRESHRSS_DATABASE_HOST
+          value: mysql
+        - name: FRESHRSS_DATABASE_USER
+          value: freshrss
+        - name: FRESHRSS_DATABASE_PASSWORD
+          value: DG3tjNPaXnpgiHPY
+        volumeMounts:
+        - name: freshrss-storage
+          mountPath: /var/www/FreshRSS/data
+      volumes:
+      - name: freshrss-storage
+        persistentVolumeClaim:
+          claimName: freshrss-pvc
+
+---
+# FreshRSS Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: freshrss
+spec:
+  selector:
+    app: freshrss
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: freshrss-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  rules:
+  - host: rss.egroupus.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: freshrss
+            port:
+              number: 80
