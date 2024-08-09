@@ -1,0 +1,108 @@
+---
+# Prowlarr PersistentVolume
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: prowlarr-pv
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  local:
+    path: /data/prowlarr
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - pi3
+
+---
+# Prowlarr PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prowlarr-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# Prowlarr Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prowlarr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prowlarr
+  template:
+    metadata:
+      labels:
+        app: prowlarr
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: pi3
+      containers:
+      - name: prowler
+        image: linuxserver/prowlarr
+        ports:
+        - containerPort: 9696
+        env:
+        - name: CRON_MIN
+          value: "*/15"
+        - name: TZ
+          value: "America/New_York"
+        volumeMounts:
+        - name: prowlarr-storage
+          mountPath: /config
+      volumes:
+      - name: prowlarr-storage
+        persistentVolumeClaim:
+          claimName: prowlarr-pvc
+
+---
+# Prowlarr Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: prowlarr
+spec:
+  selector:
+    app: prowlarr
+  ports:
+  - port: 80
+    targetPort: 9696
+
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prowlarr-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  rules:
+  - host: indexer.egroupus.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prowlarr
+            port:
+              number: 80
